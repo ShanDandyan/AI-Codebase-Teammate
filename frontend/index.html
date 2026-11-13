@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>AI Codebase Teammate</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; display: grid; grid-template-columns: 1.4fr 1fr; height: 100vh; }
+    .panel { padding: 20px; overflow-y: auto; border-right: 1px solid #1e293b; display: flex; flex-direction: column; }
+    h2 { margin-top: 0; font-size: 1.05rem; color: #38bdf8; }
+    #chat-log { flex: 1; background: #1e293b; border-radius: 8px; padding: 14px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5; }
+    .input-row { display: flex; gap: 8px; margin-top: 12px; }
+    input { flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #334155; background: #1e293b; color: #fff; }
+    button { padding: 10px 16px; border-radius: 6px; border: none; background: #0284c7; color: #fff; font-weight: 600; cursor: pointer; }
+    .card { background: #1e293b; border-left: 3px solid #38bdf8; padding: 10px 12px; border-radius: 6px; margin-bottom: 10px; font-size: 0.9rem; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; background: #0369a1; margin-left: 6px; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h2>Agent Chat &amp; Live Stream</h2>
+    <div id="chat-log">Ask a question about a GitHub repository...</div>
+    <div class="input-row">
+      <input id="prompt" placeholder="e.g., List files in ShanDandyan/DocuMind-AI" onkeydown="if(event.key==='Enter') sendQuery()" />
+      <button onclick="sendQuery()">Run</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Live Trajectory &amp; Eval <span id="eval-badge" class="badge">Loading...</span></h2>
+    <div id="trace-log"></div>
+  </div>
+
+  <script>
+    async function loadEval() {
+      try {
+        const res = await fetch('/eval/latest');
+        const data = await res.json();
+        document.getElementById('eval-badge').textContent = `Eval: ${data.average_score}% (${data.total} Qs)`;
+      } catch {
+        document.getElementById('eval-badge').textContent = 'Eval: N/A';
+      }
+    }
+
+    async function sendQuery() {
+      const input = document.getElementById('prompt');
+      const chatLog = document.getElementById('chat-log');
+      const traceLog = document.getElementById('trace-log');
+      const query = input.value.trim();
+      if (!query) return;
+
+      input.value = '';
+      chatLog.textContent = `You: ${query}\n\nAgent: `;
+      traceLog.innerHTML = '';
+
+      const start = performance.now();
+      const res = await fetch('/ask/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: query })
+      });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const payload = JSON.parse(line.slice(6));
+            if (payload.type === 'token' || payload.answer || payload.final_answer) {
+              chatLog.textContent += (payload.content || payload.answer || payload.final_answer);
+            } else {
+              const elapsed = Math.round(performance.now() - start);
+              const card = document.createElement('div');
+              card.className = 'card';
+              card.textContent = `[+${elapsed}ms] ${JSON.stringify(payload)}`;
+              traceLog.appendChild(card);
+            }
+          } catch {
+            chatLog.textContent += line.slice(6);
+          }
+        }
+      }
+    }
+
+    loadEval();
+  </script>
+</body>
+</html>
