@@ -115,6 +115,6 @@ def get_commit_history(
 
     return formatted_commits
 
-# IMPORTANT: mcp.run() MUST be inside if __name__ == "__main__":
+
 if __name__ == "__main__":
     mcp.run()
